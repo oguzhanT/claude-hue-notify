@@ -40,7 +40,7 @@ STATES = {
     "done":    {"on": True, "bri": 254, **COLORS["green"], "alert": "none"},      # solid green (auto-off later)
     "error":   {"on": True, "bri": 254, **COLORS["red"],   "alert": "none"},      # solid red
     "working": {"on": True, "bri": 150, **COLORS["blue"],  "alert": "none"},      # solid blue
-    "off":     {"on": False},
+    "off":     {"on": False, "alert": "none"},                                    # off + cancel any running blink
 }
 
 DONE_OFF_AFTER = 5  # seconds: how long "done" stays on before auto-off

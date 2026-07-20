@@ -1,7 +1,7 @@
 {
   "name": "hue-notify",
   "displayName": "Hue Notify",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Signal Claude Code session state with a Philips Hue light: blue when Claude needs you, green when done, off when you reply.",
   "author": {
     "name": "Oğuzhan Togay",
