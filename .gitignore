@@ -1,0 +1,6 @@
+# Never commit your real bridge token
+config.json
+
+# Python
+__pycache__/
+*.pyc
