@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="200" viewBox="0 0 720 200" font-family="-apple-system, Segoe UI, Roboto, sans-serif">
+  <rect width="720" height="200" rx="16" fill="#0d1117"/>
+  <text x="360" y="34" text-anchor="middle" fill="#e6edf3" font-size="17" font-weight="600">claude-hue-notify — light states</text>
+
+  <!-- WAITING (blue, blinking) -->
+  <g transform="translate(70,110)">
+    <circle r="34" fill="#2f81f7">
+      <animate attributeName="opacity" values="1;0.25;1" dur="1.1s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="34" fill="none" stroke="#2f81f7" stroke-width="2" opacity="0.6">
+      <animate attributeName="r" values="34;46;34" dur="1.1s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.6;0;0.6" dur="1.1s" repeatCount="indefinite"/>
+    </circle>
+    <text x="0" y="70" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Waiting</text>
+    <text x="0" y="90" text-anchor="middle" fill="#8b949e" font-size="12">needs you · blinks</text>
+  </g>
+
+  <!-- DONE (green) -->
+  <g transform="translate(250,110)">
+    <circle r="34" fill="#3fb950"/>
+    <text x="0" y="70" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Done</text>
+    <text x="0" y="90" text-anchor="middle" fill="#8b949e" font-size="12">finished · off in 5s</text>
+  </g>
+
+  <!-- ERROR (red) -->
+  <g transform="translate(430,110)">
+    <circle r="34" fill="#f85149"/>
+    <text x="0" y="70" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Error</text>
+    <text x="0" y="90" text-anchor="middle" fill="#8b949e" font-size="12">solid red</text>
+  </g>
+
+  <!-- OFF -->
+  <g transform="translate(620,110)">
+    <circle r="34" fill="#161b22" stroke="#30363d" stroke-width="2"/>
+    <text x="0" y="70" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Off</text>
+    <text x="0" y="90" text-anchor="middle" fill="#8b949e" font-size="12">you replied</text>
+  </g>
+</svg>

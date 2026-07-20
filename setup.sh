@@ -66,17 +66,17 @@ echo "-> Wrote $CONFIG_PATH"
 echo "-> Testing (light should turn green briefly)..."
 python3 "$SCRIPT_DIR/hue-notify.py" done || true
 
+# 6) Install hooks ----------------------------------------------------------
 echo
-echo "== Done. Now add the hooks to ~/.claude/settings.json =="
-cat <<EOF
-
-  "hooks": {
-    "Notification":     [ { "hooks": [ { "type": "command", "command": "python3 $SCRIPT_DIR/hue-notify.py waiting" } ] } ],
-    "PreToolUse":       [ { "matcher": "AskUserQuestion", "hooks": [ { "type": "command", "command": "python3 $SCRIPT_DIR/hue-notify.py waiting" } ] } ],
-    "PostToolUse":      [ { "matcher": "AskUserQuestion", "hooks": [ { "type": "command", "command": "python3 $SCRIPT_DIR/hue-notify.py off" } ] } ],
-    "UserPromptSubmit": [ { "hooks": [ { "type": "command", "command": "python3 $SCRIPT_DIR/hue-notify.py off" } ] } ],
-    "Stop":             [ { "hooks": [ { "type": "command", "command": "python3 $SCRIPT_DIR/hue-notify.py stop" } ] } ]
-  }
-
-(See README.md for details. Restart Claude Code for hooks to take effect.)
-EOF
+read -r -p "Add the hooks to ~/.claude/settings.json automatically? [Y/n] " ANS
+ANS="${ANS:-Y}"
+if [[ "$ANS" =~ ^[Yy] ]]; then
+  python3 "$SCRIPT_DIR/install-hooks.py" --script "$SCRIPT_DIR/hue-notify.py"
+  echo
+  echo "== All set! Restart Claude Code (open a new session) to activate. =="
+else
+  echo
+  echo "Skipped. Add hooks yourself anytime with:"
+  echo "  python3 $SCRIPT_DIR/install-hooks.py"
+  echo "(or copy the block from README.md into ~/.claude/settings.json)"
+fi
