@@ -1,0 +1,17 @@
+{
+  "name": "claude-hue-notify",
+  "owner": {
+    "name": "Oğuzhan Togay"
+  },
+  "description": "Ambient Philips Hue status light for Claude Code.",
+  "plugins": [
+    {
+      "name": "hue-notify",
+      "source": "./",
+      "description": "Signal Claude Code session state with a Philips Hue light (blue = needs you, green = done, off = you replied).",
+      "version": "1.0.0",
+      "license": "MIT",
+      "keywords": ["philips-hue", "hue", "notifications", "hooks", "ambient"]
+    }
+  ]
+}

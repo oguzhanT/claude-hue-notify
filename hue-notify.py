@@ -10,6 +10,7 @@ Usage:
     hue-notify.py stop      # for the Stop hook: reads hook JSON on stdin and picks
                             #   "waiting" if my last message ends with "?", else "done"
     hue-notify.py list      # list bridge lights (for setup)
+    hue-notify.py pair      # interactive: discover bridge, pair, pick a light, write config
 
 Config: ~/.config/hue-notify/config.json  ({bridge_ip, token, light_id})
         Override the path with the HUE_NOTIFY_CONFIG env var.
@@ -72,6 +73,76 @@ def list_lights(cfg):
         print(f"  [{lid}] {v.get('name')!r}  | type: {v.get('type')}  | color: {color}")
 
 
+def pair():
+    """Interactive setup: discover bridge, create a token, pick a light, write config."""
+    # 1) bridge IP
+    bridge_ip = ""
+    try:
+        with urllib.request.urlopen("https://discovery.meethue.com", timeout=5) as r:
+            found = json.loads(r.read())
+        if found:
+            bridge_ip = found[0].get("internalipaddress", "")
+    except Exception:
+        pass
+    if bridge_ip:
+        print(f"-> Discovered bridge at {bridge_ip}")
+    else:
+        bridge_ip = input("Enter your Hue bridge IP: ").strip()
+
+    # 2) create token (wait for link button)
+    print("\n>> PRESS the round link button on top of your Hue Bridge, then press Enter.")
+    input()
+    url = f"http://{bridge_ip}/api/"
+    body = json.dumps({"devicetype": "claude_hue_notify#pair"}).encode()
+    token = ""
+    for _ in range(3):
+        try:
+            req = urllib.request.Request(url, data=body, method="POST")
+            req.add_header("Content-Type", "application/json")
+            with urllib.request.urlopen(req, timeout=8) as r:
+                resp = json.loads(r.read())
+            if resp and "success" in resp[0]:
+                token = resp[0]["success"]["username"]
+                break
+            print("   Link button not detected. Press it and Enter to retry...")
+            input()
+        except Exception as e:
+            print(f"   Error: {e}. Retry? Press Enter.")
+            input()
+    if not token:
+        print("Pairing failed. Make sure you press the button, then re-run 'pair'.")
+        sys.exit(1)
+    print("   Token acquired.")
+
+    # 3) list lights & choose
+    cfg = {"bridge_ip": bridge_ip, "token": token}
+    print("\n-> Lights on this bridge:")
+    with urllib.request.urlopen(api_url(cfg, "lights"), timeout=5) as r:
+        lights = json.loads(r.read())
+    for lid, v in lights.items():
+        st = v.get("state", {})
+        color = "color" if ("xy" in st or "hue" in st) else "white"
+        print(f"   [{lid}] {v.get('name')!r}  ({color})")
+    light_id = input("\nWhich light id should be the notifier? ").strip()
+
+    # 4) write config
+    cfg["light_id"] = light_id
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+        f.write("\n")
+    print(f"\n-> Wrote {CONFIG_PATH}")
+
+    # 5) test
+    print("-> Testing (light should turn green briefly)...")
+    try:
+        set_light(cfg, STATES["done"])
+    except Exception as e:
+        print(f"   (test failed: {e})")
+    print("\nDone. If installed as a plugin, hooks are already active on next session.")
+    print("Otherwise run: python3 install-hooks.py")
+
+
 def decide_stop_state():
     """For the Stop hook: parse hook JSON from stdin, return 'waiting' if my last
     assistant message ends with '?', else 'done'. Never raises."""
@@ -114,6 +185,10 @@ def main():
         sys.exit(1)
 
     state = sys.argv[1]
+
+    if state == "pair":
+        pair()
+        return
 
     if state == "list":
         list_lights(load_config())

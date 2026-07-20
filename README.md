@@ -24,7 +24,8 @@ Works across **every** Claude Code session (any project, any terminal/IDE, sever
 
 ## Contents
 
-- [Quick start](#quick-start)
+- [Install as a plugin (recommended)](#install-as-a-plugin-recommended)
+- [Quick start (standalone script)](#quick-start-standalone-script)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Manual setup](#manual-setup)
@@ -36,7 +37,33 @@ Works across **every** Claude Code session (any project, any terminal/IDE, sever
 
 ---
 
-## Quick start
+## Install as a plugin (recommended)
+
+This repo is a [Claude Code plugin](https://docs.claude.com/en/docs/claude-code/plugins) — the hooks install themselves, no editing `settings.json`.
+
+In Claude Code:
+
+```
+/plugin marketplace add oguzhanT/claude-hue-notify
+/plugin install hue-notify@claude-hue-notify
+```
+
+Then pair your bridge & pick a light **once** (creates `~/.config/hue-notify/config.json`):
+
+```bash
+python3 ~/.claude/plugins/*/hue-notify/hue-notify.py pair
+# or from a clone:  python3 hue-notify.py pair
+```
+
+Restart Claude Code and you're done. 🎉 Remove anytime with `/plugin uninstall hue-notify`.
+
+> The plugin ships the hooks and script; `pair` only handles the one-time bridge token + light selection (Philips requires the physical button press, which can't be automated).
+
+---
+
+## Quick start (standalone script)
+
+Prefer not to use the plugin system? Clone and run the wizard:
 
 ```bash
 git clone https://github.com/oguzhanT/claude-hue-notify.git
@@ -182,6 +209,7 @@ python3 hue-notify.py error     # solid red
 python3 hue-notify.py working   # solid blue
 python3 hue-notify.py off       # off
 python3 hue-notify.py list      # list bridge lights
+python3 hue-notify.py pair      # interactive: pair bridge, pick a light, write config
 python3 hue-notify.py stop      # (used by the Stop hook; reads hook JSON on stdin)
 ```
 
