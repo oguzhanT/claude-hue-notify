@@ -35,6 +35,36 @@ class ToolError(Exception):
     """A problem to report to Claude as a failed tool call, not a protocol error."""
 
 
+class RpcError(Exception):
+    """A JSON-RPC error answer."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
+def arg(args, name, kind, minimum=None, maximum=None, required=False):
+    """Reads one tool argument, checking what the schema promises."""
+    if name not in args or args[name] is None:
+        if required:
+            raise ToolError(f"Missing argument: {name}")
+        return None
+    value = args[name]
+    if kind is bool:
+        if not isinstance(value, bool):
+            raise ToolError(f"{name} must be true or false")
+        return value
+    try:
+        value = kind(value)
+    except (TypeError, ValueError):
+        raise ToolError(f"{name} must be a {kind.__name__}")
+    if minimum is not None and value < minimum:
+        raise ToolError(f"{name} must be at least {minimum}")
+    if maximum is not None and value > maximum:
+        raise ToolError(f"{name} must be at most {maximum}")
+    return value
+
+
 # ── bridge helpers ────────────────────────────────────────────────────────────
 
 def bridge(method, path, body=None):
@@ -128,24 +158,29 @@ def tool_list_lights(args):
 
 
 def tool_set_light(args):
+    ref = arg(args, "light", str, required=True)
+    on = arg(args, "on", bool)
+    pct = arg(args, "brightness", float, 0, 100)
+    color = arg(args, "color", str)
+    kelvin = arg(args, "color_temperature", int, 2000, 6500)
+    transition = arg(args, "transition_ms", int, 0)
+
     lights = all_lights()
-    lid = resolve_light(args["light"], lights)
+    lid = resolve_light(ref, lights)
     state = {}
-    if "on" in args:
-        state["on"] = bool(args["on"])
-    if "brightness" in args:
-        pct = max(0, min(100, float(args["brightness"])))
+    if on is not None:
+        state["on"] = on
+    if pct is not None:
         if pct == 0:
             state["on"] = False
         else:
             state.update({"on": True, "bri": max(1, round(pct * 254 / 100))})
-    if "color" in args:
-        state.update({"on": True, "xy": hex_to_xy(args["color"])})
-    if "color_temperature" in args:
-        kelvin = max(1, int(args["color_temperature"]))
+    if color is not None:
+        state.update({"on": True, "xy": hex_to_xy(color)})
+    if kelvin is not None:
         state.update({"on": True, "ct": max(153, min(500, round(1_000_000 / kelvin)))})
-    if "transition_ms" in args:
-        state["transitiontime"] = max(0, round(int(args["transition_ms"]) / 100))
+    if transition is not None:
+        state["transitiontime"] = round(transition / 100)
     if not state:
         raise ToolError("Nothing to change: give on, brightness, color or color_temperature.")
     state.setdefault("alert", "none")
@@ -158,16 +193,19 @@ def tool_set_light(args):
 
 
 def tool_signal(args):
-    signal = args["signal"]
+    signal = arg(args, "signal", str, required=True)
     if signal not in SIGNALS:
         raise ToolError(f"Unknown signal {signal!r}. Use one of: {', '.join(SIGNALS)}")
     if pause_state()["paused"]:
         return "Signals are paused; nothing changed. Use hue_resume to resume."
     cfg = hn.load_config()
     state = hn.STATES[SIGNAL_STATE[signal]]
-    if args.get("lights"):
+    refs = args.get("lights")
+    if refs is not None and not isinstance(refs, list):
+        raise ToolError("lights must be a list of light ids or names")
+    if refs:
         lights = all_lights()
-        targets = [resolve_light(ref, lights) for ref in args["lights"]]
+        targets = [resolve_light(ref, lights) for ref in refs]
     else:
         targets = hn.notifier_light_ids(cfg)
     failed = []
@@ -193,7 +231,7 @@ def tool_list_scenes(args):
 
 def tool_activate_scene(args):
     scenes = bridge("GET", "scenes")
-    ref = str(args["scene"]).strip()
+    ref = arg(args, "scene", str, required=True).strip()
     matches = [sid for sid, s in scenes.items()
                if sid == ref or s.get("name", "").lower() == ref.lower()]
     if args.get("room"):
@@ -213,7 +251,7 @@ def tool_activate_scene(args):
 
 def tool_pause(args):
     os.makedirs(os.path.dirname(hn.PAUSE_PATH), exist_ok=True)
-    minutes = args.get("minutes")
+    minutes = arg(args, "minutes", float, 1)
     with open(hn.PAUSE_PATH, "w") as f:
         f.write("" if minutes is None else str(int(time.time() + float(minutes) * 60)))
     return "Signals paused" + ("" if minutes is None else f" for {minutes} minutes") + "."
@@ -248,7 +286,9 @@ TOOLS = {
     }, False),
     "hue_signal": (tool_signal,
                    "Show a status on the notifier's lamps (or the given ones): attention = blue blink, "
-                   "success = green, error = red, warning = amber, working = dim blue, off. Respects pause.", {
+                   "success = green, error = red, warning = amber, working = dim blue, off. The color stays "
+                   "until something changes it (unlike the hook's 'done', which turns off after 5 s); "
+                   "send 'off' to clear it. Respects pause.", {
                        "type": "object",
                        "properties": {
                            "signal": {"type": "string", "enum": SIGNALS},
@@ -297,7 +337,7 @@ def handle(message):
     if method == "tools/call":
         name = params.get("name")
         if name not in TOOLS:
-            raise LookupError(f"Unknown tool: {name}")
+            raise RpcError(-32602, f"Unknown tool: {name}")
         func = TOOLS[name][0]
         try:
             result = func(params.get("arguments") or {})
@@ -305,9 +345,9 @@ def handle(message):
             return {"content": [{"type": "text", "text": text}], "isError": False}
         except FileNotFoundError:
             return _tool_error("Not paired yet: run `python3 hue-notify.py pair` from the plugin folder.")
-        except (ToolError, KeyError, ValueError, TypeError) as e:
+        except (ToolError, ValueError, TypeError) as e:
             return _tool_error(str(e) or e.__class__.__name__)
-    raise LookupError(f"Method not found: {method}")
+    raise RpcError(-32601, f"Method not found: {method}")
 
 
 def _tool_error(text):
@@ -324,14 +364,18 @@ def main():
         except json.JSONDecodeError:
             _send({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}})
             continue
+        if not isinstance(message, dict):
+            _send({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid request"}})
+            continue
         if "id" not in message:
             continue  # a notification, e.g. notifications/initialized
+        request_id = message["id"]
         try:
-            _send({"jsonrpc": "2.0", "id": message["id"], "result": handle(message)})
-        except LookupError as e:
-            _send({"jsonrpc": "2.0", "id": message["id"], "error": {"code": -32601, "message": str(e)}})
+            _send({"jsonrpc": "2.0", "id": request_id, "result": handle(message)})
+        except RpcError as e:
+            _send({"jsonrpc": "2.0", "id": request_id, "error": {"code": e.code, "message": str(e)}})
         except Exception as e:  # never die on one bad request
-            _send({"jsonrpc": "2.0", "id": message["id"], "error": {"code": -32603, "message": str(e)}})
+            _send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": str(e)}})
 
 
 def _send(payload):
