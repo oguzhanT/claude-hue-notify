@@ -239,7 +239,9 @@ echo $(( $(date +%s) + 3600 )) > ~/.config/hue-notify/paused         # pause for
 rm ~/.config/hue-notify/paused                                       # resume
 ```
 
-The [HueBar](https://github.com/oguzhanT/philips-hue-client/tree/main/macos/HueBar) menu bar app sets both from its menu.
+The [HueBar](https://github.com/oguzhanT/philips-hue-client/tree/main/macos/HueBar) menu bar app sets both from its menu:
+
+<img src="docs/huebar.png" alt="HueBar menu: notifier switch, lamp picker, pause and test buttons, light controls" width="356">
 
 ---
 
