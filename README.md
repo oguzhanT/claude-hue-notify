@@ -221,11 +221,31 @@ Open `hue-notify.py`:
 - **Per-state behavior** — `STATES` (`bri` brightness; `alert: "lselect"` = blink ~15s, `"none"` = steady).
 - **Auto-off delay** — `DONE_OFF_AFTER` (seconds).
 
+### Several lamps
+
+Add `light_ids` to `config.json` to drive more than one lamp. It takes precedence over `light_id`; if one lamp is unreachable the others still change.
+
+```json
+{ "bridge_ip": "192.168.1.2", "token": "<YOUR_TOKEN>", "light_id": "7", "light_ids": ["7", "12"] }
+```
+
+### Pausing
+
+While a file named `paused` exists next to `config.json` (`~/.config/hue-notify/paused`), the notifier makes no light changes. An empty file pauses until you delete it; a unix timestamp in it pauses until that time.
+
+```bash
+touch ~/.config/hue-notify/paused                                    # pause
+echo $(( $(date +%s) + 3600 )) > ~/.config/hue-notify/paused         # pause for an hour
+rm ~/.config/hue-notify/paused                                       # resume
+```
+
+The [HueBar](https://github.com/oguzhanT/philips-hue-client/tree/main/macos/HueBar) menu bar app sets both from its menu.
+
 ---
 
 ## Notes & limitations
 
-- **Shared single light.** With multiple concurrent sessions they all drive the same light; the last event wins. It signals "at least one session needs you / finished", not which one.
+- **Shared lights.** With multiple concurrent sessions they all drive the same light(s); the last event wins. It signals "at least one session needs you / finished", not which one.
 - **No native error event.** Claude Code has no clean "error" hook, so `error` (red) isn't auto-wired — call it yourself or add a custom hook.
 - **Hooks run commands on your machine.** Review any hook before adding it. This one only talks to your local bridge and never blocks a turn (it exits 0 on any failure).
 

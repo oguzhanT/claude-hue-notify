@@ -12,8 +12,11 @@ Usage:
     hue-notify.py list      # list bridge lights (for setup)
     hue-notify.py pair      # interactive: discover bridge, pair, pick a light, write config
 
-Config: ~/.config/hue-notify/config.json  ({bridge_ip, token, light_id})
+Config: ~/.config/hue-notify/config.json  ({bridge_ip, token, light_id, light_ids?})
+        "light_ids" (optional list) drives several lights at once; falls back to "light_id".
         Override the path with the HUE_NOTIFY_CONFIG env var.
+Pause:  while a "paused" file exists next to the config, light changes are skipped.
+        Empty file = paused indefinitely; a unix timestamp = paused until then.
 No dependencies — Python stdlib only.
 """
 import json
@@ -45,6 +48,8 @@ STATES = {
 
 DONE_OFF_AFTER = 5  # seconds: how long "done" stays on before auto-off
 
+PAUSE_PATH = os.path.join(os.path.dirname(CONFIG_PATH), "paused")
+
 
 def load_config():
     with open(CONFIG_PATH) as f:
@@ -55,13 +60,42 @@ def api_url(cfg, path):
     return f"http://{cfg['bridge_ip']}/api/{cfg['token']}/{path}"
 
 
+def notifier_light_ids(cfg):
+    """Active notifier lights: "light_ids" (list) if set, else the single "light_id"."""
+    ids = cfg.get("light_ids")
+    if isinstance(ids, list) and ids:
+        return [str(i) for i in ids]
+    return [str(cfg["light_id"])]
+
+
 def set_light(cfg, body, light_id=None):
-    lid = light_id or cfg["light_id"]
+    """Set one light, or every active notifier light. Keeps going if one light fails."""
     data = json.dumps(body).encode()
-    req = urllib.request.Request(api_url(cfg, f"lights/{lid}/state"), data=data, method="PUT")
-    req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        return resp.read()
+    errors = []
+    for lid in ([light_id] if light_id else notifier_light_ids(cfg)):
+        req = urllib.request.Request(api_url(cfg, f"lights/{lid}/state"), data=data, method="PUT")
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                resp.read()
+        except Exception as e:
+            errors.append(e)
+    if errors:
+        raise errors[0]
+
+
+def is_paused():
+    try:
+        with open(PAUSE_PATH) as f:
+            raw = f.read().strip()
+    except OSError:
+        return False
+    if not raw:
+        return True
+    try:
+        return time.time() < float(raw)
+    except ValueError:
+        return True
 
 
 def list_lights(cfg):
@@ -192,6 +226,10 @@ def main():
 
     if state == "list":
         list_lights(load_config())
+        return
+
+    # Paused (e.g. from the HueBar menu bar app): leave the light alone.
+    if state != "_delayed_off" and is_paused():
         return
 
     # Stop hook: blue if my last message is a question, else green.
