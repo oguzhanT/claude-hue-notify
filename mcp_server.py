@@ -15,7 +15,6 @@ import json
 import os
 import sys
 import time
-import urllib.request
 
 _spec = importlib.util.spec_from_file_location(
     "hue_notify", os.path.join(os.path.dirname(os.path.abspath(__file__)), "hue-notify.py")
@@ -23,7 +22,7 @@ _spec = importlib.util.spec_from_file_location(
 hn = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(hn)
 
-SERVER_INFO = {"name": "hue", "version": "1.2.0"}
+SERVER_INFO = {"name": "hue", "version": "1.3.0"}
 PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"]
 
 SIGNALS = ["attention", "success", "error", "warning", "working", "off"]
@@ -69,14 +68,12 @@ def arg(args, name, kind, minimum=None, maximum=None, required=False):
 
 def bridge(method, path, body=None):
     cfg = hn.load_config()
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(hn.api_url(cfg, path), data=data, method=method)
-    req.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            result = json.loads(resp.read() or b"null")
+        result = hn.bridge_request(cfg, method, path, body)
+    except hn.PinMismatch as e:
+        raise ToolError(str(e))
     except OSError as e:
-        raise ToolError(f"Cannot reach the bridge: {e}".replace(cfg.get("token", "\0"), "***"))
+        raise ToolError(f"Cannot reach the bridge: {e}".replace(cfg.get("token") or "\0", "***"))
     errors = [item["error"]["description"] for item in (result if isinstance(result, list) else [])
               if isinstance(item, dict) and "error" in item]
     if errors:

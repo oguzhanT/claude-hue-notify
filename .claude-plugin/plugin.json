@@ -1,7 +1,7 @@
 {
   "name": "hue-notify",
   "displayName": "Hue Notify",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Signal Claude Code session state with a Philips Hue light (blue when Claude needs you, green when done, off when you reply), and let Claude control your lights over MCP.",
   "author": {
     "name": "Oğuzhan Togay",

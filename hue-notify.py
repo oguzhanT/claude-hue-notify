@@ -14,14 +14,21 @@ Usage:
     hue-notify.py list      # list bridge lights (for setup)
     hue-notify.py pair      # interactive: discover bridge, pair, pick a light, write config
 
-Config: ~/.config/hue-notify/config.json  ({bridge_ip, token, light_id, light_ids?})
+Config: ~/.config/hue-notify/config.json  ({bridge_ip, token, light_id, light_ids?, pinned_public_key?})
         "light_ids" (optional list) drives several lights at once; falls back to "light_id".
+        "pinned_public_key" (sha256//<base64 SPKI>, as curl and the PHP library use) pins the
+        bridge's key; HTTPS requests to any other refuse to send the token. Set on pairing, or
+        on first use for older configs.
         Override the path with the HUE_NOTIFY_CONFIG env var.
 Pause:  while a "paused" file exists next to the config, light changes are skipped.
         Empty file = paused indefinitely; a unix timestamp = paused until then.
 No dependencies — Python stdlib only.
 """
+import base64
+import hashlib
+import http.client
 import json
+import ssl
 import os
 import sys
 import subprocess
@@ -70,8 +77,135 @@ def load_config():
         return json.load(f)
 
 
-def api_url(cfg, path):
-    return f"http://{cfg['bridge_ip']}/api/{cfg['token']}/{path}"
+def save_config(cfg):
+    """Writes the config owner-only (it holds the bridge token), atomically."""
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    tmp = f"{CONFIG_PATH}.{os.getpid()}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(cfg, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, CONFIG_PATH)
+
+
+class PinMismatch(Exception):
+    """The bridge presented a different certificate than the pinned one."""
+
+
+def _tlv(der, i):
+    """One DER element at i: (tag, content start, end)."""
+    tag = der[i]
+    length = der[i + 1]
+    i += 2
+    if length & 0x80:
+        n = length & 0x7F
+        length = int.from_bytes(der[i:i + n], "big")
+        i += n
+    return tag, i, i + length
+
+
+def public_key_pin(der):
+    """sha256//<base64> of the certificate's SubjectPublicKeyInfo: the same pin
+    the PHP library (pinned_public_key) and curl use. Unlike a hash of the whole
+    certificate it survives the bridge renewing its certificate with the same key."""
+    _, cert, _ = _tlv(der, 0)
+    _, start, end = _tlv(der, cert)  # TBSCertificate
+    fields = []
+    while start < end:
+        tag, _, nxt = _tlv(der, start)
+        if tag != 0xA0:  # skip the optional [0] version
+            fields.append((start, nxt))
+        start = nxt
+    # serial, signature algorithm, issuer, validity, subject, subjectPublicKeyInfo
+    spki_start, spki_end = fields[5]
+    digest = hashlib.sha256(der[spki_start:spki_end]).digest()
+    return "sha256//" + base64.b64encode(digest).decode()
+
+
+def certificate_common_names(der):
+    """The CN values in a DER certificate, in order (issuer first, then subject)."""
+    oid = b"\x06\x03\x55\x04\x03"
+    names, i = [], 0
+    while True:
+        i = der.find(oid, i)
+        if i < 0:
+            return names
+        j = i + len(oid)
+        length = der[j + 1]
+        names.append(der[j + 2:j + 2 + length].decode("utf-8", "replace"))
+        i = j
+
+
+class _PinnedConnection(http.client.HTTPSConnection):
+    """HTTPS to the bridge, checked against a certificate fingerprint after
+    the handshake and before the request (and its token) is sent: http.client
+    connects lazily inside send(), so connect() runs before any byte goes out.
+
+    The bridge's certificate is signed by Philips' own CA, which is not in the
+    system store, so the chain is not verified; the pin is the check."""
+
+    def __init__(self, host, expected_pin, timeout):
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        super().__init__(host, timeout=timeout, context=context)
+        self.expected_pin = expected_pin
+        self.seen_pin = None
+        self.seen_common_names = []
+
+    def connect(self):
+        super().connect()
+        der = self.sock.getpeercert(binary_form=True) or b""
+        self.seen_pin = public_key_pin(der)
+        self.seen_common_names = certificate_common_names(der)
+        if self.expected_pin and self.seen_pin != self.expected_pin:
+            self.close()
+            raise PinMismatch(
+                f"The bridge at {self.host} presented a different certificate than the pinned one. "
+                f"If you replaced the bridge, run `hue-notify.py pair` again."
+            )
+
+
+def bridge_request(cfg, method, path, body=None, timeout=5, authenticated=True):
+    """One request to the bridge's v1 API over pinned HTTPS. Returns the JSON.
+
+    Without a pin yet (setups from before 1.3), the first connection's
+    certificate is pinned and saved: trust on first use, like SSH.
+    """
+    if cfg.get("insecure_http"):
+        conn = http.client.HTTPConnection(cfg["bridge_ip"], timeout=timeout)
+    else:
+        if not cfg.get("pinned_public_key") and cfg.get("token") and os.path.exists(CONFIG_PATH):
+            # Another process may have pinned since this config was loaded.
+            cfg["pinned_public_key"] = load_config().get("pinned_public_key")
+        conn = _PinnedConnection(cfg["bridge_ip"], cfg.get("pinned_public_key"), timeout)
+    url = f"/api/{cfg['token']}/{path}" if authenticated else f"/api/{path}"
+    payload = json.dumps(body).encode() if body is not None else None
+    try:
+        conn.request(method, url, body=payload, headers={"Content-Type": "application/json"})
+        data = conn.getresponse().read()
+    finally:
+        conn.close()
+    if isinstance(conn, _PinnedConnection) and not cfg.get("pinned_public_key") and conn.seen_pin:
+        _pin_on_first_use(cfg, conn.seen_pin)
+    return json.loads(data or b"null")
+
+
+def _pin_on_first_use(cfg, seen_pin):
+    """Saves the first pin, unless another process (a parallel hook, HueBar)
+    pinned meanwhile: then that pin must match, and nothing is rewritten."""
+    cfg["pinned_public_key"] = seen_pin
+    if not cfg.get("token") or not os.path.exists(CONFIG_PATH):
+        return
+    on_disk = load_config()
+    pinned = on_disk.get("pinned_public_key")
+    if pinned and pinned != seen_pin:
+        raise PinMismatch(
+            f"The bridge at {cfg['bridge_ip']} presented a different key than the one pinned in {CONFIG_PATH}."
+        )
+    if not pinned:
+        on_disk["pinned_public_key"] = seen_pin
+        save_config(on_disk)
 
 
 def notifier_light_ids(cfg):
@@ -84,14 +218,12 @@ def notifier_light_ids(cfg):
 
 def set_light(cfg, body, light_id=None):
     """Set one light, or every active notifier light. Keeps going if one light fails."""
-    data = json.dumps(body).encode()
     errors = []
     for lid in ([light_id] if light_id else notifier_light_ids(cfg)):
-        req = urllib.request.Request(api_url(cfg, f"lights/{lid}/state"), data=data, method="PUT")
-        req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                resp.read()
+            bridge_request(cfg, "PUT", f"lights/{lid}/state", body)
+        except PinMismatch:
+            raise  # never retry with the other lamps against an impostor
         except Exception as e:
             errors.append(e)
             continue
@@ -120,8 +252,7 @@ def is_paused():
 
 
 def list_lights(cfg):
-    with urllib.request.urlopen(api_url(cfg, "lights"), timeout=5) as resp:
-        lights = json.loads(resp.read())
+    lights = bridge_request(cfg, "GET", "lights")
     for lid, v in lights.items():
         st = v.get("state", {})
         color = "yes" if ("xy" in st or "hue" in st) else "no"
@@ -147,15 +278,24 @@ def pair():
     # 2) create token (wait for link button)
     print("\n>> PRESS the round link button on top of your Hue Bridge, then press Enter.")
     input()
-    url = f"http://{bridge_ip}/api/"
-    body = json.dumps({"devicetype": "claude_hue_notify#pair"}).encode()
+    # Pin the certificate first: the token we are about to receive must only
+    # ever travel to this bridge.
+    probe = _PinnedConnection(bridge_ip, None, 8)
+    try:
+        probe.connect()
+    finally:
+        probe.close()
+    names = probe.seen_common_names
+    bridge_id = names[1] if len(names) > 1 else (names[0] if names else "?")
+    print(f"   Bridge certificate is for bridge id {bridge_id} (issued by {names[0] if names else '?'}).")
+    print(f"   Pinning its public key {probe.seen_pin[:20]}... Pair on a network you trust.")
+    cfg = {"bridge_ip": bridge_ip, "token": "", "pinned_public_key": probe.seen_pin}
+
     token = ""
     for _ in range(3):
         try:
-            req = urllib.request.Request(url, data=body, method="POST")
-            req.add_header("Content-Type", "application/json")
-            with urllib.request.urlopen(req, timeout=8) as r:
-                resp = json.loads(r.read())
+            resp = bridge_request(cfg, "POST", "", {"devicetype": "claude_hue_notify#pair"}, timeout=8,
+                                  authenticated=False)
             if resp and "success" in resp[0]:
                 token = resp[0]["success"]["username"]
                 break
@@ -170,10 +310,9 @@ def pair():
     print("   Token acquired.")
 
     # 3) list lights & choose
-    cfg = {"bridge_ip": bridge_ip, "token": token}
+    cfg["token"] = token
     print("\n-> Lights on this bridge:")
-    with urllib.request.urlopen(api_url(cfg, "lights"), timeout=5) as r:
-        lights = json.loads(r.read())
+    lights = bridge_request(cfg, "GET", "lights")
     for lid, v in lights.items():
         st = v.get("state", {})
         color = "color" if ("xy" in st or "hue" in st) else "white"
@@ -182,13 +321,7 @@ def pair():
 
     # 4) write config
     cfg["light_id"] = light_id
-    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-    # The file holds the bridge token: readable by its owner only.
-    fd = os.open(CONFIG_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(cfg, f, indent=2)
-        f.write("\n")
-    os.chmod(CONFIG_PATH, 0o600)
+    save_config(cfg)
     print(f"\n-> Wrote {CONFIG_PATH}")
 
     # 5) test

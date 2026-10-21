@@ -20,7 +20,7 @@ Glance at your desk lamp instead of your screen: it goes **blue** when Claude ne
 
 The plugin also gives Claude an **MCP server** for the lights: ask *"dim the desk lamp to 30%"*, *"switch on the Relax scene"* or *"pause the notifier for an hour"*. See [Claude controls the lights (MCP)](#claude-controls-the-lights-mcp).
 
-Works across **every** Claude Code session (any project, any terminal/IDE, several at once) via your **global** `~/.claude/settings.json`. Single dependency-free Python file talking to the bridge's **local** REST API — nothing leaves your network.
+Works across **every** Claude Code session (any project, any terminal/IDE, several at once) via your **global** `~/.claude/settings.json`. Single dependency-free Python file talking to the bridge's **local** REST API over HTTPS, with the bridge's certificate pinned — nothing leaves your network, and your bridge token only goes to your bridge.
 
 ---
 
@@ -257,6 +257,10 @@ Add `light_ids` to `config.json` to drive more than one lamp. It takes precedenc
 ### Shared with the PHP library and HueBar
 
 [philips-hue-client](https://github.com/oguzhanT/philips-hue-client) (`$client->signal()`, `hue signal`) and the HueBar menu bar app use the same states, lamps (`light_ids`) and pause file; [docs/signals.md](https://github.com/oguzhanT/philips-hue-client/blob/main/docs/signals.md) is the contract. `attention` and `success`, the PHP names, work here too. When the notifier changes a lamp, it drops any state another sender was waiting to restore on it, so its newer state stays.
+
+### HTTPS and the certificate pin
+
+The script talks to the bridge over HTTPS. The bridge's certificate is signed by Philips' own CA, which your system does not trust, so its public key is pinned instead: `pinned_public_key` in `config.json` (the `sha256//…` format curl and the PHP library use), and a bridge that presents any other key never receives the token. A renewed certificate with the same key still matches. `pair` pins the key it receives the token over; a config from before 1.3 is pinned on first use. Replaced the bridge? Run `pair` again. A bridge without HTTPS (the original round v1 bridge) needs `"insecure_http": true`.
 
 ### Pausing
 
