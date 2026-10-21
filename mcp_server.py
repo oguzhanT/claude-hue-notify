@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""MCP server for claude-hue-notify: lets Claude see and control your Hue lights.
+"""MCP server for Lampsignal: lets Claude see and control your Hue lights.
 
 Speaks the Model Context Protocol over stdio (JSON-RPC 2.0, one message per
-line). Uses the same config and pause file as hue-notify.py, so the bridge you
-paired with `hue-notify.py pair` is the one it talks to.
+line). Uses the same config and pause file as lampsignal.py, so the bridge you
+paired with `lampsignal.py pair` is the one it talks to.
 
 Tools: hue_status, hue_list_lights, hue_set_light, hue_signal, hue_list_scenes,
 hue_activate_scene, hue_pause, hue_resume.
@@ -17,7 +17,7 @@ import sys
 import time
 
 _spec = importlib.util.spec_from_file_location(
-    "hue_notify", os.path.join(os.path.dirname(os.path.abspath(__file__)), "hue-notify.py")
+    "hue_notify", os.path.join(os.path.dirname(os.path.abspath(__file__)), "lampsignal.py")
 )
 hn = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(hn)
@@ -481,7 +481,7 @@ def handle(message):
             return {"content": [{"type": "text", "text": text}], "isError": False}
         except FileNotFoundError:
             return _tool_error("Not paired yet: use hue_discover_bridges, then hue_pair_bridge "
-                               "(or run /hue-notify:setup).")
+                               "(or run /lampsignal:setup).")
         except (ToolError, ValueError, TypeError) as e:
             return _tool_error(str(e) or e.__class__.__name__)
     raise RpcError(-32601, f"Method not found: {method}")

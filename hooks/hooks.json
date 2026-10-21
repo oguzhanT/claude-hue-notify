@@ -3,7 +3,7 @@
     "Notification": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hue-notify.py\" waiting" }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/lampsignal.py\" waiting" }
         ]
       }
     ],
@@ -11,7 +11,7 @@
       {
         "matcher": "AskUserQuestion",
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hue-notify.py\" waiting" }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/lampsignal.py\" waiting" }
         ]
       }
     ],
@@ -19,21 +19,21 @@
       {
         "matcher": "AskUserQuestion",
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hue-notify.py\" off" }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/lampsignal.py\" off" }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hue-notify.py\" off" }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/lampsignal.py\" off" }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hue-notify.py\" stop" }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/lampsignal.py\" stop" }
         ]
       }
     ]

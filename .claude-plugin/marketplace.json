@@ -1,17 +1,23 @@
 {
-  "name": "claude-hue-notify",
+  "name": "lampsignal",
   "owner": {
     "name": "Oğuzhan Togay"
   },
-  "description": "Ambient Philips Hue status light for Claude Code.",
+  "description": "Lampsignal: an ambient status lamp for Claude Code. Works with Philips Hue.",
   "plugins": [
     {
-      "name": "hue-notify",
+      "name": "lampsignal",
       "source": "./",
-      "description": "Signal Claude Code session state with a Philips Hue light (blue = needs you, green = done, off = you replied).",
-      "version": "1.4.0",
+      "description": "Your desk lamp tells you when Claude needs you. Works with Philips Hue.",
+      "version": "2.0.0",
       "license": "MIT",
-      "keywords": ["philips-hue", "hue", "notifications", "hooks", "ambient"]
+      "keywords": [
+        "philips-hue",
+        "hue",
+        "notifications",
+        "hooks",
+        "ambient"
+      ]
     }
   ]
 }
