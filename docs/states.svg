@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="200" viewBox="0 0 720 200" font-family="-apple-system, Segoe UI, Roboto, sans-serif">
   <rect width="720" height="200" rx="16" fill="#0d1117"/>
-  <text x="360" y="34" text-anchor="middle" fill="#e6edf3" font-size="17" font-weight="600">claude-hue-notify — light states</text>
+  <text x="360" y="34" text-anchor="middle" fill="#e6edf3" font-size="17" font-weight="600">Lampsignal — light states</text>
 
   <!-- WAITING (blue, blinking) -->
   <g transform="translate(70,110)">

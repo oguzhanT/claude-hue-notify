@@ -1,14 +1,22 @@
 {
-  "name": "hue-notify",
-  "displayName": "Hue Notify",
-  "version": "1.4.0",
-  "description": "Signal Claude Code session state with a Philips Hue light (blue when Claude needs you, green when done, off when you reply), and let Claude control your lights over MCP.",
+  "name": "lampsignal",
+  "displayName": "Lampsignal",
+  "version": "2.0.0",
+  "description": "Your desk lamp tells you when Claude needs you: blue while it waits, green when it's done, off when you reply. Works with Philips Hue; Claude can control the lights over MCP. Independent project, not affiliated with Anthropic or Signify.",
   "author": {
     "name": "Oğuzhan Togay",
     "url": "https://github.com/oguzhanT"
   },
-  "homepage": "https://github.com/oguzhanT/claude-hue-notify",
-  "repository": "https://github.com/oguzhanT/claude-hue-notify",
+  "homepage": "https://github.com/oguzhanT/lampsignal",
+  "repository": "https://github.com/oguzhanT/lampsignal",
   "license": "MIT",
-  "keywords": ["philips-hue", "hue", "notifications", "hooks", "ambient", "lights", "mcp"]
+  "keywords": [
+    "philips-hue",
+    "hue",
+    "notifications",
+    "hooks",
+    "ambient",
+    "lights",
+    "mcp"
+  ]
 }

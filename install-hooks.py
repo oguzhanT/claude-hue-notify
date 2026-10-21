@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Merge (or remove) claude-hue-notify hooks in ~/.claude/settings.json — safely & idempotently.
+"""Merge (or remove) Lampsignal hooks in ~/.claude/settings.json — safely & idempotently.
 
 Usage:
     python3 install-hooks.py            # add/update hooks
     python3 install-hooks.py --remove   # remove our hooks
     python3 install-hooks.py --settings /path/to/settings.json
-    python3 install-hooks.py --script   /path/to/hue-notify.py
+    python3 install-hooks.py --script   /path/to/lampsignal.py
 
 - Backs up settings.json to settings.json.bak before writing.
-- Idempotent: re-running replaces our previous entries (matched by "hue-notify.py"),
+- Idempotent: re-running replaces our previous entries (matched by "lampsignal.py"),
   and never touches hooks you added yourself.
 """
 import argparse
@@ -18,9 +18,9 @@ import shutil
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MARK = "hue-notify.py"  # how we recognize our own hook commands
+MARKS = ("lampsignal.py", "hue-notify.py")  # our hook commands, current and pre-2.0 names
 
-# event -> (matcher or None, hue-notify state)
+# event -> (matcher or None, lampsignal state)
 HOOKS = [
     ("Notification",     None,              "waiting"),
     ("PreToolUse",       "AskUserQuestion", "waiting"),
@@ -38,13 +38,13 @@ def group(matcher, command):
 
 
 def is_ours(grp):
-    return any(MARK in h.get("command", "") for h in grp.get("hooks", []))
+    return any(mark in h.get("command", "") for h in grp.get("hooks", []) for mark in MARKS)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--settings", default=os.path.expanduser("~/.claude/settings.json"))
-    ap.add_argument("--script", default=os.path.join(HERE, "hue-notify.py"))
+    ap.add_argument("--script", default=os.path.join(HERE, "lampsignal.py"))
     ap.add_argument("--remove", action="store_true")
     args = ap.parse_args()
 
@@ -92,7 +92,7 @@ def main():
         f.write("\n")
 
     action = "Removed" if args.remove else "Installed"
-    print(f"{action} claude-hue-notify hooks in {settings_path}")
+    print(f"{action} Lampsignal hooks in {settings_path}")
     if not args.remove:
         print(f"  -> using script: {script}")
     print("  -> backup: " + settings_path + ".bak")

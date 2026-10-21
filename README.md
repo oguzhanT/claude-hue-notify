@@ -1,6 +1,8 @@
-# 💡 claude-hue-notify
+# 💡 Lampsignal
 
-> Turn a **Philips Hue** light into an ambient status indicator for **[Claude Code](https://claude.com/claude-code)**.
+> Your desk lamp tells you when **[Claude Code](https://claude.com/claude-code)** needs you. Works with **Philips Hue**.
+
+*Lampsignal was called claude-hue-notify until 2.0. It is an independent open-source project, not affiliated with or endorsed by Anthropic or Signify (Philips Hue).*
 
 <p>
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue.svg">
@@ -26,6 +28,7 @@ Works across **every** Claude Code session (any project, any terminal/IDE, sever
 
 ## Contents
 
+- [Upgrading from claude-hue-notify](#upgrading-from-claude-hue-notify)
 - [Install as a plugin (recommended)](#install-as-a-plugin-recommended)
 - [Quick start (standalone script)](#quick-start-standalone-script)
 - [How it works](#how-it-works)
@@ -40,6 +43,19 @@ Works across **every** Claude Code session (any project, any terminal/IDE, sever
 
 ---
 
+## Upgrading from claude-hue-notify
+
+The plugin got a new name, so Claude Code sees it as a new plugin. Your bridge pairing and lamp choices stay where they are (`~/.config/hue-notify/`).
+
+```
+/plugin uninstall hue-notify@claude-hue-notify
+/plugin marketplace remove claude-hue-notify
+/plugin marketplace add oguzhanT/lampsignal
+/plugin install lampsignal@lampsignal
+```
+
+Standalone hooks that call `hue-notify.py` keep working: that file now hands over to `lampsignal.py`.
+
 ## Install as a plugin (recommended)
 
 This repo is a [Claude Code plugin](https://docs.claude.com/en/docs/claude-code/plugins) — the hooks install themselves, no editing `settings.json`.
@@ -47,22 +63,22 @@ This repo is a [Claude Code plugin](https://docs.claude.com/en/docs/claude-code/
 In Claude Code:
 
 ```
-/plugin marketplace add oguzhanT/claude-hue-notify
-/plugin install hue-notify@claude-hue-notify
+/plugin marketplace add oguzhanT/lampsignal
+/plugin install lampsignal@lampsignal
 ```
 
 Restart Claude Code, then let Claude connect the bridge:
 
 ```
-/hue-notify:setup
+/lampsignal:setup
 ```
 
-Claude finds the bridge on your network, asks you to press its link button (Philips requires that once), and asks which lamp to use. That's it. 🎉 Remove anytime with `/plugin uninstall hue-notify`.
+Claude finds the bridge on your network, asks you to press its link button (Philips requires that once), and asks which lamp to use. That's it. 🎉 Remove anytime with `/plugin uninstall lampsignal`.
 
 Prefer a terminal? The same pairing, from the plugin's folder:
 
 ```bash
-python3 "$(ls -d ~/.claude/plugins/cache/claude-hue-notify/hue-notify/*/ | tail -1)hue-notify.py" pair
+python3 "$(ls -d ~/.claude/plugins/cache/lampsignal/lampsignal/*/ | tail -1)lampsignal.py" pair
 ```
 
 ---
@@ -72,8 +88,8 @@ python3 "$(ls -d ~/.claude/plugins/cache/claude-hue-notify/hue-notify/*/ | tail 
 Prefer not to use the plugin system? Clone and run the wizard:
 
 ```bash
-git clone https://github.com/oguzhanT/claude-hue-notify.git
-cd claude-hue-notify
+git clone https://github.com/oguzhanT/lampsignal.git
+cd lampsignal
 ./setup.sh
 ```
 
@@ -129,7 +145,7 @@ dns-sd -B _hue._tcp                             # find the bridge name
 
 ### 2. Create an API token (pair)
 
-Use `python3 hue-notify.py pair`: it pins the bridge's key before asking for the token, so the token never goes anywhere else. By hand, press the round **link button** on top of the bridge, then within 30 s (`-k` because the bridge's certificate is signed by Philips' own CA; check the bridge id in the certificate):
+Use `python3 lampsignal.py pair`: it pins the bridge's key before asking for the token, so the token never goes anywhere else. By hand, press the round **link button** on top of the bridge, then within 30 s (`-k` because the bridge's certificate is signed by Philips' own CA; check the bridge id in the certificate):
 
 ```bash
 curl -k -X POST https://<BRIDGE_IP>/api/ \
@@ -146,7 +162,7 @@ If you see `link button not pressed`, press it and retry. A config made this way
 mkdir -p ~/.config/hue-notify
 cp config.example.json ~/.config/hue-notify/config.json
 # edit bridge_ip + token, then list lights to find the id you want:
-python3 hue-notify.py list
+python3 lampsignal.py list
 #   [7] 'Hue color lamp 1' | type: Extended color light | color: yes
 ```
 
@@ -182,7 +198,7 @@ A dedicated helper keeps `~/.claude/settings.json` tidy — it **backs up** the 
 python3 install-hooks.py                 # add / update our hooks
 python3 install-hooks.py --remove        # cleanly remove only our hooks
 python3 install-hooks.py --settings /custom/settings.json
-python3 install-hooks.py --script /abs/path/hue-notify.py
+python3 install-hooks.py --script /abs/path/lampsignal.py
 ```
 
 Prefer copy-paste? Add this to your global `~/.claude/settings.json` (replace `/path/to`):
@@ -192,11 +208,11 @@ Prefer copy-paste? Add this to your global `~/.claude/settings.json` (replace `/
 
 ```json
 "hooks": {
-  "Notification":     [ { "hooks": [ { "type": "command", "command": "python3 /path/to/claude-hue-notify/hue-notify.py waiting" } ] } ],
-  "PreToolUse":       [ { "matcher": "AskUserQuestion", "hooks": [ { "type": "command", "command": "python3 /path/to/claude-hue-notify/hue-notify.py waiting" } ] } ],
-  "PostToolUse":      [ { "matcher": "AskUserQuestion", "hooks": [ { "type": "command", "command": "python3 /path/to/claude-hue-notify/hue-notify.py off" } ] } ],
-  "UserPromptSubmit": [ { "hooks": [ { "type": "command", "command": "python3 /path/to/claude-hue-notify/hue-notify.py off" } ] } ],
-  "Stop":             [ { "hooks": [ { "type": "command", "command": "python3 /path/to/claude-hue-notify/hue-notify.py stop" } ] } ]
+  "Notification":     [ { "hooks": [ { "type": "command", "command": "python3 /path/to/lampsignal/lampsignal.py waiting" } ] } ],
+  "PreToolUse":       [ { "matcher": "AskUserQuestion", "hooks": [ { "type": "command", "command": "python3 /path/to/lampsignal/lampsignal.py waiting" } ] } ],
+  "PostToolUse":      [ { "matcher": "AskUserQuestion", "hooks": [ { "type": "command", "command": "python3 /path/to/lampsignal/lampsignal.py off" } ] } ],
+  "UserPromptSubmit": [ { "hooks": [ { "type": "command", "command": "python3 /path/to/lampsignal/lampsignal.py off" } ] } ],
+  "Stop":             [ { "hooks": [ { "type": "command", "command": "python3 /path/to/lampsignal/lampsignal.py stop" } ] } ]
 }
 ```
 
@@ -209,20 +225,20 @@ Prefer copy-paste? Add this to your global `~/.claude/settings.json` (replace `/
 ## CLI usage
 
 ```bash
-python3 hue-notify.py waiting   # blue, blinks ~15s
-python3 hue-notify.py done      # green, auto-off after 5s
-python3 hue-notify.py error     # solid red
-python3 hue-notify.py working   # solid blue
-python3 hue-notify.py warning   # solid amber
-python3 hue-notify.py off       # off
-python3 hue-notify.py list      # list bridge lights
-python3 hue-notify.py pair      # interactive: pair bridge, pick a light, write config
-python3 hue-notify.py stop      # (used by the Stop hook; reads hook JSON on stdin)
+python3 lampsignal.py waiting   # blue, blinks ~15s
+python3 lampsignal.py done      # green, auto-off after 5s
+python3 lampsignal.py error     # solid red
+python3 lampsignal.py working   # solid blue
+python3 lampsignal.py warning   # solid amber
+python3 lampsignal.py off       # off
+python3 lampsignal.py list      # list bridge lights
+python3 lampsignal.py pair      # interactive: pair bridge, pick a light, write config
+python3 lampsignal.py stop      # (used by the Stop hook; reads hook JSON on stdin)
 ```
 
 ## Claude controls the lights (MCP)
 
-Installed as a plugin, claude-hue-notify also starts an MCP server (`mcp_server.py`, stdlib only) that uses the bridge you paired. Claude gets these tools:
+Installed as a plugin, Lampsignal also starts an MCP server (`mcp_server.py`, stdlib only) that uses the bridge you paired. Claude gets these tools:
 
 | Tool | What it does |
 |---|---|
@@ -232,7 +248,7 @@ Installed as a plugin, claude-hue-notify also starts an MCP server (`mcp_server.
 | `hue_signal` | `attention`, `success`, `error`, `warning`, `working` or `off` on the notifier's lamps or named ones; respects pause |
 | `hue_list_scenes` / `hue_activate_scene` | Saved scenes, by name or id |
 | `hue_pause` / `hue_resume` | Pause signals for some minutes or until resumed |
-| `hue_discover_bridges` / `hue_pair_bridge` | Find and pair a bridge (what `/hue-notify:setup` uses) |
+| `hue_discover_bridges` / `hue_pair_bridge` | Find and pair a bridge (what `/lampsignal:setup` uses) |
 | `hue_set_notifier_lights` | Pick the default status lamp(s) |
 | `hue_assign_project_light` / `hue_unassign_project_light` | Give a project its own lamp, or take it back |
 
@@ -241,12 +257,12 @@ Claude Code asks before running a tool that changes something, the same as for a
 Using the script without the plugin? Add the server yourself:
 
 ```bash
-claude mcp add hue -- python3 /path/to/claude-hue-notify/mcp_server.py
+claude mcp add hue -- python3 /path/to/lampsignal/mcp_server.py
 ```
 
 ## Customizing
 
-Open `hue-notify.py`:
+Open `lampsignal.py`:
 
 - **Colors** — `COLORS` (Hue `hue` 0–65535, `sat` 0–254).
 - **Per-state behavior** — `STATES` (`bri` brightness; `alert: "lselect"` = blink ~15s, `"none"` = steady).
@@ -270,9 +286,9 @@ Running Claude in several projects? Give a project its own lamp, and its session
 
 The deepest matching folder wins, so subfolders inherit their project's lamp. Projects without an entry use `light_ids`.
 
-### Shared with the PHP library and HueBar
+### Shared with the PHP library and the Mac app
 
-[philips-hue-client](https://github.com/oguzhanT/philips-hue-client) (`$client->signal()`, `hue signal`) and the HueBar menu bar app use the same states, lamps (`light_ids`) and pause file; [docs/signals.md](https://github.com/oguzhanT/philips-hue-client/blob/main/docs/signals.md) is the contract. `attention` and `success`, the PHP names, work here too. When the notifier changes a lamp, it drops any state another sender was waiting to restore on it, so its newer state stays.
+[lampsignal-php](https://github.com/oguzhanT/lampsignal-php) (`$client->signal()`, `hue signal`) and the Lampsignal menu bar app use the same states, lamps (`light_ids`) and pause file; [docs/signals.md](https://github.com/oguzhanT/lampsignal-php/blob/main/docs/signals.md) is the contract. `attention` and `success`, the PHP names, work here too. When the notifier changes a lamp, it drops any state another sender was waiting to restore on it, so its newer state stays.
 
 ### HTTPS and the certificate pin
 
@@ -288,9 +304,9 @@ echo $(( $(date +%s) + 3600 )) > ~/.config/hue-notify/paused         # pause for
 rm ~/.config/hue-notify/paused                                       # resume
 ```
 
-The [HueBar](https://github.com/oguzhanT/philips-hue-client/tree/main/macos/HueBar) menu bar app sets both from its menu:
+The [Lampsignal for Mac](https://github.com/oguzhanT/lampsignal-php/tree/main/macos/Lampsignal) menu bar app sets both from its menu:
 
-<img src="docs/huebar.png" alt="HueBar menu: notifier switch, lamp picker, pause and test buttons, light controls" width="356">
+<img src="docs/menu-bar.png" alt="Lampsignal menu: notifier switch, lamp picker, pause and test buttons, light controls" width="356">
 
 ---
 
@@ -305,7 +321,7 @@ The [HueBar](https://github.com/oguzhanT/philips-hue-client/tree/main/macos/HueB
 | Problem | Fix |
 |---|---|
 | `link button not pressed` | Press the bridge button, retry within 30s. |
-| Light never changes | Run `python3 hue-notify.py done` manually; check `bridge_ip`/`token`/`light_id`; ping the bridge. |
+| Light never changes | Run `python3 lampsignal.py done` manually; check `bridge_ip`/`token`/`light_id`; ping the bridge. |
 | Hooks don't fire | Restart Claude Code; validate JSON: `python3 -c "import json;json.load(open('$HOME/.claude/settings.json'))"`. |
 | Blue doesn't blink | Some bulbs support `lselect` weakly — increase `bri` or use a proper color bulb. |
 | Want it gone | `python3 install-hooks.py --remove` and delete `~/.config/hue-notify/`. |
