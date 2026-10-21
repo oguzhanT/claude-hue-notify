@@ -400,6 +400,8 @@ def pair_bridge(bridge_ip):
     names = probe.seen_common_names
     bridge_id = names[1] if len(names) > 1 else (names[0] if names else "")
     cfg = {"bridge_ip": bridge_ip, "token": "", "pinned_public_key": probe.seen_pin}
+    if bridge_id:
+        cfg["bridge_id"] = bridge_id
     resp = bridge_request(cfg, "POST", "", {"devicetype": "claude_hue_notify#pair"}, timeout=8,
                           authenticated=False)
     item = resp[0] if isinstance(resp, list) and resp else {}
@@ -412,7 +414,11 @@ def pair_bridge(bridge_ip):
         previous = load_config()
     except (OSError, ValueError):
         previous = {}
-    if previous.get("bridge_ip") == bridge_ip:
+    # Same bridge (by its id, else its key), maybe at a new address: keep the
+    # lamp choices. A different bridge: its lamp ids mean nothing here.
+    same = (previous.get("bridge_id") and previous.get("bridge_id") == bridge_id) or \
+        (previous.get("pinned_public_key") == probe.seen_pin)
+    if same:
         previous.update(cfg, token=token)
         cfg = previous
     else:
@@ -481,7 +487,10 @@ def hook_input():
     if _HOOK_INPUT is None:
         _HOOK_INPUT = {}
         try:
-            if not sys.stdin.isatty():
+            # Claude Code writes the JSON and closes stdin; a caller that leaves
+            # an empty pipe open must not hang the hook, so wait briefly.
+            import select
+            if not sys.stdin.isatty() and select.select([sys.stdin], [], [], 0.2)[0]:
                 data = json.loads(sys.stdin.read() or "{}")
                 _HOOK_INPUT = data if isinstance(data, dict) else {}
         except Exception:
