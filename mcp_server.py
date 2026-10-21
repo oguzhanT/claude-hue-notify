@@ -22,7 +22,7 @@ _spec = importlib.util.spec_from_file_location(
 hn = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(hn)
 
-SERVER_INFO = {"name": "hue", "version": "1.3.0"}
+SERVER_INFO = {"name": "hue", "version": "1.4.0"}
 PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"]
 
 SIGNALS = ["attention", "success", "error", "warning", "working", "off"]
@@ -133,9 +133,96 @@ def pause_state():
 
 # ── tools ────────────────────────────────────────────────────────────────────
 
+def current_project():
+    """The project this Claude Code session runs in."""
+    return os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+
+
 def tool_status(args):
     cfg = hn.load_config()
-    return {"bridge_ip": cfg.get("bridge_ip"), "notifier_lights": hn.notifier_light_ids(cfg), **pause_state()}
+    project = current_project()
+    return {
+        "bridge_ip": cfg.get("bridge_ip"),
+        "notifier_lights": hn.notifier_light_ids(cfg),
+        "this_project": project,
+        "this_project_lights": hn.project_light_ids(cfg, project),
+        "project_lights": cfg.get("project_lights", {}),
+        **pause_state(),
+    }
+
+
+def tool_discover_bridges(args):
+    bridges = hn.discover_bridges()
+    if not bridges:
+        return "No bridge found on this network. Ask the user for the bridge's IP address."
+    return bridges
+
+
+def tool_pair_bridge(args):
+    ip = arg(args, "ip", str, required=True).strip()
+    try:
+        cfg, bridge_id = hn.pair_bridge(ip)
+    except hn.LinkButtonNotPressed as e:
+        raise ToolError(f"{e} Then call hue_pair_bridge again.")
+    except OSError as e:
+        raise ToolError(f"Cannot reach a bridge at {ip}: {e}")
+    lamps = "keeps its lamps" if cfg.get("light_id") else "has no lamp yet: call hue_set_notifier_lights"
+    return f"Paired with bridge {bridge_id or ip}; its key is pinned and the config {lamps}."
+
+
+def _with_config(change):
+    try:
+        cfg = hn.load_config()
+    except FileNotFoundError:
+        raise ToolError("Not paired yet: use hue_discover_bridges and hue_pair_bridge first.")
+    change(cfg)
+    hn.save_config(cfg)
+    return cfg
+
+
+def tool_set_notifier_lights(args):
+    refs = args.get("lights")
+    if not isinstance(refs, list) or not refs:
+        raise ToolError("lights must be a non-empty list of light ids or names")
+    lights = all_lights()
+    ids = [resolve_light(ref, lights) for ref in refs]
+
+    def change(cfg):
+        cfg["light_id"], cfg["light_ids"] = ids[0], ids
+    _with_config(change)
+    return "Notifier lamps: " + ", ".join(f"{lights[i].get('name')} ({i})" for i in ids)
+
+
+def tool_assign_project_light(args):
+    refs = args.get("lights")
+    if not isinstance(refs, list) or not refs:
+        raise ToolError("lights must be a non-empty list of light ids or names")
+    project = arg(args, "project", str) or current_project()
+    lights = all_lights()
+    ids = [resolve_light(ref, lights) for ref in refs]
+
+    def change(cfg):
+        mapping = cfg.get("project_lights") if isinstance(cfg.get("project_lights"), dict) else {}
+        mapping[project] = ids
+        cfg["project_lights"] = mapping
+    _with_config(change)
+    names = ", ".join(f"{lights[i].get('name')} ({i})" for i in ids)
+    return f"Sessions in {project} (and its subfolders) now signal on {names}."
+
+
+def tool_unassign_project_light(args):
+    project = arg(args, "project", str) or current_project()
+    removed = []
+
+    def change(cfg):
+        mapping = cfg.get("project_lights") or {}
+        if project in mapping:
+            removed.append(mapping.pop(project))
+        cfg["project_lights"] = mapping
+    _with_config(change)
+    if not removed:
+        return f"{project} had no lamp of its own."
+    return f"{project} uses the notifier's lamps again."
 
 
 def tool_list_lights(args):
@@ -265,8 +352,41 @@ def tool_resume(args):
 LIGHT_REF = {"type": "string", "description": "Light id or name, e.g. \"7\" or \"Desk\""}
 
 TOOLS = {
-    "hue_status": (tool_status, "Bridge address, the notifier's lamps, and whether signals are paused.",
+    "hue_status": (tool_status,
+                   "Bridge address, the notifier's lamps, which lamps this project's sessions use, "
+                   "and whether signals are paused.",
                    {"type": "object", "properties": {}}, True),
+    "hue_discover_bridges": (tool_discover_bridges,
+                             "Find Hue bridges on the local network (mDNS, then Philips' discovery service).",
+                             {"type": "object", "properties": {}}, True),
+    "hue_pair_bridge": (tool_pair_bridge,
+                        "Pair with a bridge: ask the user to press the bridge's round link button first, then "
+                        "call this within 30 s. Pins the bridge's key and saves the token.", {
+                            "type": "object",
+                            "properties": {"ip": {"type": "string", "description": "Bridge IP address"}},
+                            "required": ["ip"],
+                        }, False),
+    "hue_set_notifier_lights": (tool_set_notifier_lights,
+                                "Choose the lamp(s) that show Claude's status by default.", {
+                                    "type": "object",
+                                    "properties": {"lights": {"type": "array", "items": LIGHT_REF, "minItems": 1}},
+                                    "required": ["lights"],
+                                }, False),
+    "hue_assign_project_light": (tool_assign_project_light,
+                                 "Give a project its own lamp(s): sessions in that folder signal there instead "
+                                 "of on the notifier's lamps. Defaults to this session's project.", {
+                                     "type": "object",
+                                     "properties": {
+                                         "lights": {"type": "array", "items": LIGHT_REF, "minItems": 1},
+                                         "project": {"type": "string", "description": "Folder; defaults to this project"},
+                                     },
+                                     "required": ["lights"],
+                                 }, False),
+    "hue_unassign_project_light": (tool_unassign_project_light,
+                                   "Make a project use the notifier's lamps again. Defaults to this project.", {
+                                       "type": "object",
+                                       "properties": {"project": {"type": "string"}},
+                                   }, False),
     "hue_list_lights": (tool_list_lights, "List the lights: id, name, on/off, brightness %, color support.",
                         {"type": "object", "properties": {}}, True),
     "hue_set_light": (tool_set_light, "Change one light: switch it, dim it, color it or set its white tone.", {
@@ -341,7 +461,8 @@ def handle(message):
             text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, indent=1)
             return {"content": [{"type": "text", "text": text}], "isError": False}
         except FileNotFoundError:
-            return _tool_error("Not paired yet: run `python3 hue-notify.py pair` from the plugin folder.")
+            return _tool_error("Not paired yet: use hue_discover_bridges, then hue_pair_bridge "
+                               "(or run /hue-notify:setup).")
         except (ToolError, ValueError, TypeError) as e:
             return _tool_error(str(e) or e.__class__.__name__)
     raise RpcError(-32601, f"Method not found: {method}")
