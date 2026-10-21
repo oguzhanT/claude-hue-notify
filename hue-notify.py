@@ -14,15 +14,17 @@ Usage:
     hue-notify.py list      # list bridge lights (for setup)
     hue-notify.py pair      # interactive: discover bridge, pair, pick a light, write config
 
-Config: ~/.config/hue-notify/config.json  ({bridge_ip, token, light_id, light_ids?, cert_sha256?})
+Config: ~/.config/hue-notify/config.json  ({bridge_ip, token, light_id, light_ids?, pinned_public_key?})
         "light_ids" (optional list) drives several lights at once; falls back to "light_id".
-        "cert_sha256" pins the bridge's certificate; HTTPS requests to any other refuse to send
-        the token. Set on pairing, or on first use for older configs.
+        "pinned_public_key" (sha256//<base64 SPKI>, as curl and the PHP library use) pins the
+        bridge's key; HTTPS requests to any other refuse to send the token. Set on pairing, or
+        on first use for older configs.
         Override the path with the HUE_NOTIFY_CONFIG env var.
 Pause:  while a "paused" file exists next to the config, light changes are skipped.
         Empty file = paused indefinitely; a unix timestamp = paused until then.
 No dependencies — Python stdlib only.
 """
+import base64
 import hashlib
 import http.client
 import json
@@ -90,6 +92,36 @@ class PinMismatch(Exception):
     """The bridge presented a different certificate than the pinned one."""
 
 
+def _tlv(der, i):
+    """One DER element at i: (tag, content start, end)."""
+    tag = der[i]
+    length = der[i + 1]
+    i += 2
+    if length & 0x80:
+        n = length & 0x7F
+        length = int.from_bytes(der[i:i + n], "big")
+        i += n
+    return tag, i, i + length
+
+
+def public_key_pin(der):
+    """sha256//<base64> of the certificate's SubjectPublicKeyInfo: the same pin
+    the PHP library (pinned_public_key) and curl use. Unlike a hash of the whole
+    certificate it survives the bridge renewing its certificate with the same key."""
+    _, cert, _ = _tlv(der, 0)
+    _, start, end = _tlv(der, cert)  # TBSCertificate
+    fields = []
+    while start < end:
+        tag, _, nxt = _tlv(der, start)
+        if tag != 0xA0:  # skip the optional [0] version
+            fields.append((start, nxt))
+        start = nxt
+    # serial, signature algorithm, issuer, validity, subject, subjectPublicKeyInfo
+    spki_start, spki_end = fields[5]
+    digest = hashlib.sha256(der[spki_start:spki_end]).digest()
+    return "sha256//" + base64.b64encode(digest).decode()
+
+
 def certificate_common_names(der):
     """The CN values in a DER certificate, in order (issuer first, then subject)."""
     oid = b"\x06\x03\x55\x04\x03"
@@ -106,26 +138,27 @@ def certificate_common_names(der):
 
 class _PinnedConnection(http.client.HTTPSConnection):
     """HTTPS to the bridge, checked against a certificate fingerprint after
-    the handshake and before the request (and its token) is sent.
+    the handshake and before the request (and its token) is sent: http.client
+    connects lazily inside send(), so connect() runs before any byte goes out.
 
     The bridge's certificate is signed by Philips' own CA, which is not in the
     system store, so the chain is not verified; the pin is the check."""
 
-    def __init__(self, host, expected_sha256, timeout):
+    def __init__(self, host, expected_pin, timeout):
         context = ssl.create_default_context()
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         super().__init__(host, timeout=timeout, context=context)
-        self.expected_sha256 = expected_sha256
-        self.seen_sha256 = None
+        self.expected_pin = expected_pin
+        self.seen_pin = None
         self.seen_common_names = []
 
     def connect(self):
         super().connect()
         der = self.sock.getpeercert(binary_form=True) or b""
-        self.seen_sha256 = hashlib.sha256(der).hexdigest()
+        self.seen_pin = public_key_pin(der)
         self.seen_common_names = certificate_common_names(der)
-        if self.expected_sha256 and self.seen_sha256 != self.expected_sha256.lower():
+        if self.expected_pin and self.seen_pin != self.expected_pin:
             self.close()
             raise PinMismatch(
                 f"The bridge at {self.host} presented a different certificate than the pinned one. "
@@ -142,7 +175,10 @@ def bridge_request(cfg, method, path, body=None, timeout=5, authenticated=True):
     if cfg.get("insecure_http"):
         conn = http.client.HTTPConnection(cfg["bridge_ip"], timeout=timeout)
     else:
-        conn = _PinnedConnection(cfg["bridge_ip"], cfg.get("cert_sha256"), timeout)
+        if not cfg.get("pinned_public_key") and cfg.get("token") and os.path.exists(CONFIG_PATH):
+            # Another process may have pinned since this config was loaded.
+            cfg["pinned_public_key"] = load_config().get("pinned_public_key")
+        conn = _PinnedConnection(cfg["bridge_ip"], cfg.get("pinned_public_key"), timeout)
     url = f"/api/{cfg['token']}/{path}" if authenticated else f"/api/{path}"
     payload = json.dumps(body).encode() if body is not None else None
     try:
@@ -150,13 +186,26 @@ def bridge_request(cfg, method, path, body=None, timeout=5, authenticated=True):
         data = conn.getresponse().read()
     finally:
         conn.close()
-    if isinstance(conn, _PinnedConnection) and not cfg.get("cert_sha256") and conn.seen_sha256:
-        cfg["cert_sha256"] = conn.seen_sha256
-        if cfg.get("token") and os.path.exists(CONFIG_PATH):
-            on_disk = load_config()
-            on_disk["cert_sha256"] = conn.seen_sha256
-            save_config(on_disk)
+    if isinstance(conn, _PinnedConnection) and not cfg.get("pinned_public_key") and conn.seen_pin:
+        _pin_on_first_use(cfg, conn.seen_pin)
     return json.loads(data or b"null")
+
+
+def _pin_on_first_use(cfg, seen_pin):
+    """Saves the first pin, unless another process (a parallel hook, HueBar)
+    pinned meanwhile: then that pin must match, and nothing is rewritten."""
+    cfg["pinned_public_key"] = seen_pin
+    if not cfg.get("token") or not os.path.exists(CONFIG_PATH):
+        return
+    on_disk = load_config()
+    pinned = on_disk.get("pinned_public_key")
+    if pinned and pinned != seen_pin:
+        raise PinMismatch(
+            f"The bridge at {cfg['bridge_ip']} presented a different key than the one pinned in {CONFIG_PATH}."
+        )
+    if not pinned:
+        on_disk["pinned_public_key"] = seen_pin
+        save_config(on_disk)
 
 
 def notifier_light_ids(cfg):
@@ -239,8 +288,8 @@ def pair():
     names = probe.seen_common_names
     bridge_id = names[1] if len(names) > 1 else (names[0] if names else "?")
     print(f"   Bridge certificate is for bridge id {bridge_id} (issued by {names[0] if names else '?'}).")
-    print(f"   Pinning sha256 {probe.seen_sha256[:16]}... Pair on a network you trust.")
-    cfg = {"bridge_ip": bridge_ip, "token": "", "cert_sha256": probe.seen_sha256}
+    print(f"   Pinning its public key {probe.seen_pin[:20]}... Pair on a network you trust.")
+    cfg = {"bridge_ip": bridge_ip, "token": "", "pinned_public_key": probe.seen_pin}
 
     token = ""
     for _ in range(3):

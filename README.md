@@ -260,7 +260,7 @@ Add `light_ids` to `config.json` to drive more than one lamp. It takes precedenc
 
 ### HTTPS and the certificate pin
 
-The script talks to the bridge over HTTPS. The bridge's certificate is signed by Philips' own CA, which your system does not trust, so it is pinned instead: `cert_sha256` in `config.json` holds its SHA-256, and a bridge that presents any other certificate never receives the token. `pair` pins the certificate it receives the token over; a config from before 1.3 is pinned on first use. Replaced the bridge? Run `pair` again. A bridge without HTTPS (the original round v1 bridge) needs `"insecure_http": true`.
+The script talks to the bridge over HTTPS. The bridge's certificate is signed by Philips' own CA, which your system does not trust, so its public key is pinned instead: `pinned_public_key` in `config.json` (the `sha256//…` format curl and the PHP library use), and a bridge that presents any other key never receives the token. A renewed certificate with the same key still matches. `pair` pins the key it receives the token over; a config from before 1.3 is pinned on first use. Replaced the bridge? Run `pair` again. A bridge without HTTPS (the original round v1 bridge) needs `"insecure_http": true`.
 
 ### Pausing
 
