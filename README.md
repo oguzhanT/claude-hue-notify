@@ -51,16 +51,19 @@ In Claude Code:
 /plugin install hue-notify@claude-hue-notify
 ```
 
-Then pair your bridge & pick a light **once** (creates `~/.config/hue-notify/config.json`):
+Restart Claude Code, then let Claude connect the bridge:
 
-```bash
-python3 ~/.claude/plugins/*/hue-notify/hue-notify.py pair
-# or from a clone:  python3 hue-notify.py pair
+```
+/hue-notify:setup
 ```
 
-Restart Claude Code and you're done. 🎉 Remove anytime with `/plugin uninstall hue-notify`.
+Claude finds the bridge on your network, asks you to press its link button (Philips requires that once), and asks which lamp to use. That's it. 🎉 Remove anytime with `/plugin uninstall hue-notify`.
 
-> The plugin ships the hooks and script; `pair` only handles the one-time bridge token + light selection (Philips requires the physical button press, which can't be automated).
+Prefer a terminal? The same pairing, from the plugin's folder:
+
+```bash
+python3 "$(ls -d ~/.claude/plugins/cache/claude-hue-notify/hue-notify/*/ | tail -1)hue-notify.py" pair
+```
 
 ---
 
@@ -89,7 +92,7 @@ Then **restart Claude Code** (open a new session) and you're done. 🎉
 
 ## How it works
 
-Claude Code fires [hooks](https://docs.claude.com/en/docs/claude-code/hooks) on session events. This project maps those events to a small script that sets your Hue light over the bridge's local API (`http://<bridge-ip>/api/<token>/lights/<id>/state`).
+Claude Code fires [hooks](https://docs.claude.com/en/docs/claude-code/hooks) on session events. This project maps those events to a small script that sets your Hue light over the bridge's local API (`https://<bridge-ip>/api/<token>/lights/<id>/state`, with the bridge's key pinned).
 
 | Claude Code event | Meaning | Light |
 |---|---|---|
@@ -126,16 +129,16 @@ dns-sd -B _hue._tcp                             # find the bridge name
 
 ### 2. Create an API token (pair)
 
-Press the round **link button** on top of the bridge, then within 30s:
+Use `python3 hue-notify.py pair`: it pins the bridge's key before asking for the token, so the token never goes anywhere else. By hand, press the round **link button** on top of the bridge, then within 30 s (`-k` because the bridge's certificate is signed by Philips' own CA; check the bridge id in the certificate):
 
 ```bash
-curl -X POST http://<BRIDGE_IP>/api/ \
+curl -k -X POST https://<BRIDGE_IP>/api/ \
   -H 'Content-Type: application/json' \
   -d '{"devicetype":"claude_hue_notify#mac"}'
 # -> [{"success":{"username":"<YOUR_TOKEN>"}}]
 ```
 
-If you see `link button not pressed`, press it and retry.
+If you see `link button not pressed`, press it and retry. A config made this way is pinned on first use.
 
 ### 3. config.json
 
@@ -229,6 +232,9 @@ Installed as a plugin, claude-hue-notify also starts an MCP server (`mcp_server.
 | `hue_signal` | `attention`, `success`, `error`, `warning`, `working` or `off` on the notifier's lamps or named ones; respects pause |
 | `hue_list_scenes` / `hue_activate_scene` | Saved scenes, by name or id |
 | `hue_pause` / `hue_resume` | Pause signals for some minutes or until resumed |
+| `hue_discover_bridges` / `hue_pair_bridge` | Find and pair a bridge (what `/hue-notify:setup` uses) |
+| `hue_set_notifier_lights` | Pick the default status lamp(s) |
+| `hue_assign_project_light` / `hue_unassign_project_light` | Give a project its own lamp, or take it back |
 
 Claude Code asks before running a tool that changes something, the same as for any MCP tool. Run `/mcp` to see the server's state.
 
@@ -253,6 +259,16 @@ Add `light_ids` to `config.json` to drive more than one lamp. It takes precedenc
 ```json
 { "bridge_ip": "192.168.1.2", "token": "<YOUR_TOKEN>", "light_id": "7", "light_ids": ["7", "12"] }
 ```
+
+### A lamp per project
+
+Running Claude in several projects? Give a project its own lamp, and its sessions signal there while the others keep the default lamps. Ask Claude (*"use the desk lamp for this project"*), or add it to `config.json`:
+
+```json
+"project_lights": { "~/code/shop": ["1"], "~/code/blog": ["7"] }
+```
+
+The deepest matching folder wins, so subfolders inherit their project's lamp. Projects without an entry use `light_ids`.
 
 ### Shared with the PHP library and HueBar
 
