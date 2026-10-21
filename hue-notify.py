@@ -6,6 +6,8 @@ Usage:
     hue-notify.py done      # task finished          -> green, turns off after 5s
     hue-notify.py error     # something went wrong   -> solid red
     hue-notify.py working   # working (optional)     -> solid blue
+    hue-notify.py warning   # heads-up               -> solid amber
+                            #   ("attention" and "success" work too: the PHP library's names)
     hue-notify.py off       # turn the light off
     hue-notify.py stop      # for the Stop hook: reads hook JSON on stdin and picks
                             #   "waiting" if my last message ends with "?", else "done"
@@ -35,7 +37,12 @@ COLORS = {
     "red":   {"hue": 0,     "sat": 254},
     "green": {"hue": 25500, "sat": 254},
     "blue":  {"hue": 46920, "sat": 254},
+    "amber": {"hue": 8000,  "sat": 254},
 }
+
+# Names the PHP library (philips-hue-client) uses for the same states.
+# The shared contract: https://github.com/oguzhanT/philips-hue-client/blob/main/docs/signals.md
+ALIASES = {"attention": "waiting", "success": "done"}
 
 # state -> Hue light state body
 STATES = {
@@ -43,12 +50,19 @@ STATES = {
     "done":    {"on": True, "bri": 254, **COLORS["green"], "alert": "none"},      # solid green (auto-off later)
     "error":   {"on": True, "bri": 254, **COLORS["red"],   "alert": "none"},      # solid red
     "working": {"on": True, "bri": 150, **COLORS["blue"],  "alert": "none"},      # solid blue
+    "warning": {"on": True, "bri": 254, **COLORS["amber"], "alert": "none"},      # solid amber
     "off":     {"on": False, "alert": "none"},                                    # off + cancel any running blink
 }
 
 DONE_OFF_AFTER = 5  # seconds: how long "done" stays on before auto-off
 
 PAUSE_PATH = os.path.join(os.path.dirname(CONFIG_PATH), "paused")
+
+
+def restore_path(light_id):
+    """Where a sender that restores (the PHP library) saved a lamp's state."""
+    safe = "".join(c for c in str(light_id) if c.isalnum() or c in "-_")
+    return os.path.join(os.path.dirname(CONFIG_PATH), f"signal-restore-{safe}.json")
 
 
 def load_config():
@@ -80,6 +94,13 @@ def set_light(cfg, body, light_id=None):
                 resp.read()
         except Exception as e:
             errors.append(e)
+            continue
+        # This change is newer than any state another sender is waiting to
+        # restore, so that pending restore must not undo it.
+        try:
+            os.remove(restore_path(lid))
+        except OSError:
+            pass
     if errors:
         raise errors[0]
 
@@ -162,9 +183,12 @@ def pair():
     # 4) write config
     cfg["light_id"] = light_id
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-    with open(CONFIG_PATH, "w") as f:
+    # The file holds the bridge token: readable by its owner only.
+    fd = os.open(CONFIG_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(cfg, f, indent=2)
         f.write("\n")
+    os.chmod(CONFIG_PATH, 0o600)
     print(f"\n-> Wrote {CONFIG_PATH}")
 
     # 5) test
@@ -218,7 +242,7 @@ def main():
         print(__doc__)
         sys.exit(1)
 
-    state = sys.argv[1]
+    state = ALIASES.get(sys.argv[1], sys.argv[1])
 
     if state == "pair":
         pair()

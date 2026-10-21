@@ -18,6 +18,8 @@ Glance at your desk lamp instead of your screen: it goes **blue** when Claude ne
 - 🔴 **Solid red** — error (manual/optional)
 - ⚫ **Off** — you replied (typed a message or answered a question dialog)
 
+The plugin also gives Claude an **MCP server** for the lights: ask *"dim the desk lamp to 30%"*, *"switch on the Relax scene"* or *"pause the notifier for an hour"*. See [Claude controls the lights (MCP)](#claude-controls-the-lights-mcp).
+
 Works across **every** Claude Code session (any project, any terminal/IDE, several at once) via your **global** `~/.claude/settings.json`. Single dependency-free Python file talking to the bridge's **local** REST API — nothing leaves your network.
 
 ---
@@ -31,6 +33,7 @@ Works across **every** Claude Code session (any project, any terminal/IDE, sever
 - [Manual setup](#manual-setup)
 - [Installing / removing the hooks](#installing--removing-the-hooks)
 - [CLI usage](#cli-usage)
+- [Claude controls the lights (MCP)](#claude-controls-the-lights-mcp)
 - [Customizing](#customizing)
 - [Notes & limitations](#notes--limitations)
 - [Troubleshooting](#troubleshooting)
@@ -207,10 +210,32 @@ python3 hue-notify.py waiting   # blue, blinks ~15s
 python3 hue-notify.py done      # green, auto-off after 5s
 python3 hue-notify.py error     # solid red
 python3 hue-notify.py working   # solid blue
+python3 hue-notify.py warning   # solid amber
 python3 hue-notify.py off       # off
 python3 hue-notify.py list      # list bridge lights
 python3 hue-notify.py pair      # interactive: pair bridge, pick a light, write config
 python3 hue-notify.py stop      # (used by the Stop hook; reads hook JSON on stdin)
+```
+
+## Claude controls the lights (MCP)
+
+Installed as a plugin, claude-hue-notify also starts an MCP server (`mcp_server.py`, stdlib only) that uses the bridge you paired. Claude gets these tools:
+
+| Tool | What it does |
+|---|---|
+| `hue_status` | Bridge address, the notifier's lamps, whether signals are paused |
+| `hue_list_lights` | Lights with on/off, brightness and color support |
+| `hue_set_light` | Switch, dim (`brightness` %), color (`#hex`) or white tone (`color_temperature` K) one light, with an optional fade |
+| `hue_signal` | `attention`, `success`, `error`, `warning`, `working` or `off` on the notifier's lamps or named ones; respects pause |
+| `hue_list_scenes` / `hue_activate_scene` | Saved scenes, by name or id |
+| `hue_pause` / `hue_resume` | Pause signals for some minutes or until resumed |
+
+Claude Code asks before running a tool that changes something, the same as for any MCP tool. Run `/mcp` to see the server's state.
+
+Using the script without the plugin? Add the server yourself:
+
+```bash
+claude mcp add hue -- python3 /path/to/claude-hue-notify/mcp_server.py
 ```
 
 ## Customizing
@@ -228,6 +253,10 @@ Add `light_ids` to `config.json` to drive more than one lamp. It takes precedenc
 ```json
 { "bridge_ip": "192.168.1.2", "token": "<YOUR_TOKEN>", "light_id": "7", "light_ids": ["7", "12"] }
 ```
+
+### Shared with the PHP library and HueBar
+
+[philips-hue-client](https://github.com/oguzhanT/philips-hue-client) (`$client->signal()`, `hue signal`) and the HueBar menu bar app use the same states, lamps (`light_ids`) and pause file; [docs/signals.md](https://github.com/oguzhanT/philips-hue-client/blob/main/docs/signals.md) is the contract. `attention` and `success`, the PHP names, work here too. When the notifier changes a lamp, it drops any state another sender was waiting to restore on it, so its newer state stays.
 
 ### Pausing
 
